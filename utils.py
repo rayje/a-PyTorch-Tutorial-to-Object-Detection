@@ -8,8 +8,8 @@ import torchvision.transforms.functional as FT
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Label map
-voc_labels = ('aeroplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus', 'car', 'cat', 'chair', 'cow', 'diningtable',
-              'dog', 'horse', 'motorbike', 'person', 'pottedplant', 'sheep', 'sofa', 'train', 'tvmonitor')
+# voc_labels = ('aeroplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus', 'car', 'cat', 'chair', 'cow', 'diningtable',
+voc_labels = ('bird', 'car', 'cat', 'dog', 'person', 'squirrel')
 label_map = {k: v + 1 for v, k in enumerate(voc_labels)}
 label_map['background'] = 0
 rev_label_map = {v: k for k, v in label_map.items()}  # Inverse mapping
@@ -19,6 +19,8 @@ distinct_colors = ['#e6194b', '#3cb44b', '#ffe119', '#0082c8', '#f58231', '#911e
                    '#d2f53c', '#fabebe', '#008080', '#000080', '#aa6e28', '#fffac8', '#800000', '#aaffc3', '#808000',
                    '#ffd8b1', '#e6beff', '#808080', '#FFFFFF']
 label_color_map = {k: distinct_colors[i] for i, k in enumerate(label_map.keys())}
+print('LABEL_MAP:', label_map)
+print('LABEL_COLOR_MAP:', label_color_map)
 
 
 def parse_annotation(annotation_path):
@@ -49,7 +51,7 @@ def parse_annotation(annotation_path):
     return {'boxes': boxes, 'labels': labels, 'difficulties': difficulties}
 
 
-def create_data_lists(voc07_path, voc12_path, output_folder):
+def create_data_lists(voc07_path, output_folder):
     """
     Create lists of images, the bounding boxes and labels of the objects in these images, and save these to file.
 
@@ -58,14 +60,14 @@ def create_data_lists(voc07_path, voc12_path, output_folder):
     :param output_folder: folder where the JSONs must be saved
     """
     voc07_path = os.path.abspath(voc07_path)
-    voc12_path = os.path.abspath(voc12_path)
+    # voc12_path = os.path.abspath(voc12_path)
 
     train_images = list()
     train_objects = list()
     n_objects = 0
 
     # Training data
-    for path in [voc07_path, voc12_path]:
+    for path in [voc07_path]: #, voc12_path]:
 
         # Find IDs of images in training data
         with open(os.path.join(path, 'ImageSets/Main/trainval.txt')) as f:
@@ -76,6 +78,9 @@ def create_data_lists(voc07_path, voc12_path, output_folder):
             objects = parse_annotation(os.path.join(path, 'Annotations', id + '.xml'))
             if len(objects) == 0:
                 continue
+            if len(objects['labels']) == 0:
+                continue
+
             n_objects += len(objects)
             train_objects.append(objects)
             train_images.append(os.path.join(path, 'JPEGImages', id + '.jpg'))
@@ -99,7 +104,7 @@ def create_data_lists(voc07_path, voc12_path, output_folder):
     n_objects = 0
 
     # Find IDs of images in validation data
-    with open(os.path.join(voc07_path, 'ImageSets/Main/test.txt')) as f:
+    with open(os.path.join(voc07_path, 'ImageSets/Main/val.txt')) as f:
         ids = f.read().splitlines()
 
     for id in ids:
@@ -107,6 +112,9 @@ def create_data_lists(voc07_path, voc12_path, output_folder):
         objects = parse_annotation(os.path.join(voc07_path, 'Annotations', id + '.xml'))
         if len(objects) == 0:
             continue
+        if len(objects['labels']) == 0:
+            continue
+
         test_objects.append(objects)
         n_objects += len(objects)
         test_images.append(os.path.join(voc07_path, 'JPEGImages', id + '.jpg'))
@@ -400,6 +408,7 @@ def expand(image, boxes, filler):
 
     # Create such an image with the filler
     filler = torch.FloatTensor(filler)  # (3)
+
     new_image = torch.ones((3, new_h, new_w), dtype=torch.float) * filler.unsqueeze(1).unsqueeze(1)  # (3, new_h, new_w)
     # Note - do not use expand() like new_image = filler.unsqueeze(1).unsqueeze(1).expand(3, new_h, new_w)
     # because all expanded values will share the same memory, so changing one pixel will change all
@@ -416,7 +425,6 @@ def expand(image, boxes, filler):
         0)  # (n_objects, 4), n_objects is the no. of objects in this image
 
     return new_image, new_boxes
-
 
 def random_crop(image, boxes, labels, difficulties):
     """
@@ -602,6 +610,7 @@ def transform(image, boxes, labels, difficulties, split):
     new_boxes = boxes
     new_labels = labels
     new_difficulties = difficulties
+
     # Skip the following operations if validation/evaluation
     if split == 'TRAIN':
         # A series of photometric distortions in random order, each with 50% chance of occurrence, as in Caffe repo
@@ -612,8 +621,8 @@ def transform(image, boxes, labels, difficulties, split):
 
         # Expand image (zoom out) with a 50% chance - helpful for training detection of small objects
         # Fill surrounding space with the mean of ImageNet data that our base VGG was trained on
-        if random.random() < 0.5:
-            new_image, new_boxes = expand(new_image, boxes, filler=mean)
+        # if random.random() < 0.5:
+        #     new_image, new_boxes = expand(new_image, boxes, filler=mean)
 
         # Randomly crop image (zoom in)
         new_image, new_boxes, new_labels, new_difficulties = random_crop(new_image, new_boxes, new_labels,
@@ -636,6 +645,7 @@ def transform(image, boxes, labels, difficulties, split):
     new_image = FT.normalize(new_image, mean=mean, std=std)
 
     return new_image, new_boxes, new_labels, new_difficulties
+
 
 
 def adjust_learning_rate(optimizer, scale):
